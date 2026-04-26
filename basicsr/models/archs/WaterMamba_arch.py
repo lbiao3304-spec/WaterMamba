@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from pytorch_wavelets import DWTForward, DWTInverse
 from functools import partial
 from typing import Optional, Callable
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
@@ -578,35 +579,90 @@ class OverlapPatchEmbed(nn.Module):
 
         return x
 
-class Downsample(nn.Module):
-    def __init__(self, n_feat):
-        super(Downsample, self).__init__()
+# class Downsample(nn.Module):
+#     def __init__(self, n_feat):
+#         super(Downsample, self).__init__()
 
-        self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False),
-                                  nn.PixelUnshuffle(2))
+#         self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False),
+#                                   nn.PixelUnshuffle(2))
+
+#     def forward(self, x):
+#         _, _, h, w = x.shape
+#         if h % 2 != 0:
+#             x = F.pad(x, [0, 0, 1, 0])
+#         if w % 2 != 0:
+#             x = F.pad(x, [1, 0, 0, 0])
+#         return self.body(x)
+
+# class Upsample(nn.Module):
+#     def __init__(self, n_feat):
+#         super(Upsample, self).__init__()
+
+#         self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False),
+#                                   nn.PixelShuffle(2))
+
+#     def forward(self, x):
+#         _, _, h, w = x.shape
+#         if h % 2 != 0:
+#             x = F.pad(x, [0, 0, 1, 0])
+#         if w % 2 != 0:
+#             x = F.pad(x, [1, 0, 0, 0])
+#         return self.body(x)
+
+# =========================================================
+# 新增：基于离散小波变换 (DWT) 的无损下采样
+# =========================================================
+class Downsample_DWT(nn.Module):
+    def __init__(self, n_feat):
+        super(Downsample_DWT, self).__init__()
+        # 初始化正向小波变换，使用最基础的 haar 小波
+        self.dwt = DWTForward(J=1, mode='zero', wave='haar')
+        
+        # 💡 小波变换会把图像拆成 1个低频(LL) + 3个高频(LH, HL, HH)
+        # 通道数会变成原来的 4 倍，所以我们需要一个 1x1 卷积把它压缩对齐到目标的通道数 (n_feat * 2)
+        self.conv = nn.Conv2d(n_feat * 4, n_feat * 2, kernel_size=1, bias=False)
 
     def forward(self, x):
-        _, _, h, w = x.shape
-        if h % 2 != 0:
-            x = F.pad(x, [0, 0, 1, 0])
-        if w % 2 != 0:
-            x = F.pad(x, [1, 0, 0, 0])
-        return self.body(x)
+        # yl 是低频分量，yh 是高频分量列表
+        yl, yh = self.dwt(x)
+        
+        # 提取并重组高频分量 (B, C, 3, H/2, W/2) -> (B, C*3, H/2, W/2)
+        b, c, _, h, w = yh[0].shape
+        yh_reshaped = yh[0].view(b, c * 3, h, w)
+        
+        # 将低频和高频在通道维度拼接，实现信息零丢失！
+        out = torch.cat([yl, yh_reshaped], dim=1) 
+        
+        # 压缩通道数，送给下一层
+        return self.conv(out)
 
-class Upsample(nn.Module):
+# =========================================================
+# 新增：基于逆向小波变换 (IDWT) 的无损上采样
+# =========================================================
+class Upsample_IDWT(nn.Module):
     def __init__(self, n_feat):
-        super(Upsample, self).__init__()
-
-        self.body = nn.Sequential(nn.Conv2d(n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False),
-                                  nn.PixelShuffle(2))
+        super(Upsample_IDWT, self).__init__()
+        # 初始化逆向小波变换
+        self.idwt = DWTInverse(mode='zero', wave='haar')
+        
+        # 上采样前，需要把通道数放大 4 倍，用来填补 1个低频和 3个高频的位置
+        self.conv = nn.Conv2d(n_feat, (n_feat // 2) * 4, kernel_size=1, bias=False)
 
     def forward(self, x):
-        _, _, h, w = x.shape
-        if h % 2 != 0:
-            x = F.pad(x, [0, 0, 1, 0])
-        if w % 2 != 0:
-            x = F.pad(x, [1, 0, 0, 0])
-        return self.body(x)
+        # 放大通道数
+        x = self.conv(x)
+        
+        # 拆分出低频和高频的通道
+        b, c, h, w = x.shape
+        c_split = c // 4
+        
+        yl = x[:, :c_split, :, :]               # 前 1/4 作为低频
+        yh_reshaped = x[:, c_split:, :, :]      # 后 3/4 作为高频
+        yh = [yh_reshaped.view(b, c_split, 3, h, w)] 
+        
+        # 通过 IDWT 完美重构出尺寸翻倍的高清特征图！
+        out = self.idwt((yl, yh))
+        return out
 
 def cat(x1, x2):
     diffY = x2.size()[2] - x1.size()[2]
@@ -644,34 +700,34 @@ class WaterMamba(nn.Module):
             SCOSSBlock(hidden_dim=dim, h=h, w=w, d_state=d_state, expand=expand, mam_block=mam_blocks[0],
                        d_conv=d_conv,drop_path=drop_path, attn_drop_rate=attn_drop_rate) for i in range(num_blocks[0])])
 
-        self.down1_2 = Downsample(dim)  ## From Level 1 to Level 2 , init_value, heads_range, value_factor=1
+        self.down1_2 = Downsample_DWT(dim)  ## From Level 1 to Level 2 , init_value, heads_range, value_factor=1
         self.encoder_level2 = nn.Sequential(*[
             SCOSSBlock(hidden_dim=dim * 2, h=h//2, w=w//2, d_state=d_state, expand=expand,  mam_block=mam_blocks[1],
                        d_conv=d_conv,drop_path=drop_path, attn_drop_rate=attn_drop_rate) for i in range(num_blocks[1])])
 
-        self.down2_3 = Downsample(int(dim * 2 ** 1))  ## From Level 2 to Level 3
+        self.down2_3 = Downsample_DWT(int(dim * 2 ** 1))  ## From Level 2 to Level 3
         self.encoder_level3 = nn.Sequential(*[
             SCOSSBlock(hidden_dim=int(dim * 2 ** 2), h=h//4, w=w//4, d_state=d_state, expand=expand, mam_block=mam_blocks[2],
                        d_conv=d_conv,drop_path=drop_path, attn_drop_rate=attn_drop_rate) for i in range(num_blocks[2])])
 
-        self.down3_4 = Downsample(int(dim * 2 ** 2))  ## From Level 3 to Level 4
+        self.down3_4 = Downsample_DWT(int(dim * 2 ** 2))  ## From Level 3 to Level 4
         self.latent = nn.Sequential(*[
             SCOSSBlock(hidden_dim=int(dim * 2 ** 3), h=h//8, w=w//8, d_state=d_state, expand=expand, mam_block=mam_blocks[3],
                        d_conv=d_conv,drop_path=drop_path, attn_drop_rate=attn_drop_rate) for i in range(num_blocks[3])])
 
-        self.up4_3 = Upsample(int(dim * 2 ** 3))  ## From Level 4 to Level 3
+        self.up4_3 = Upsample_IDWT(int(dim * 2 ** 3))  ## From Level 4 to Level 3
         self.reduce_chan_level3 = nn.Conv2d(int(dim * 2 ** 3), int(dim * 2 ** 2), kernel_size=1, bias=bias)
         self.decoder_level3 = nn.Sequential(*[
             SCOSSBlock(hidden_dim=int(dim * 2 ** 2), h=h//4, w=w//4, d_state=d_state, expand=expand, mam_block=mam_blocks[2],
                        d_conv=d_conv,drop_path=drop_path, attn_drop_rate=attn_drop_rate) for i in range(num_blocks[2])])
 
-        self.up3_2 = Upsample(int(dim * 2 ** 2))  ## From Level 3 to Level 2
+        self.up3_2 = Upsample_IDWT(int(dim * 2 ** 2))  ## From Level 3 to Level 2
         self.reduce_chan_level2 = nn.Conv2d(int(dim * 2 ** 2), int(dim * 2 ** 1), kernel_size=1, bias=bias)
         self.decoder_level2 = nn.Sequential(*[
             SCOSSBlock(hidden_dim=int(dim * 2 ** 1), h=h//2, w=w//2, d_state=d_state, expand=expand, mam_block=mam_blocks[1],
                        d_conv=d_conv,drop_path=drop_path, attn_drop_rate=attn_drop_rate) for i in range(num_blocks[1])])
 
-        self.up2_1 = Upsample(int(dim * 2 ** 1))  ## From Level 2 to Level 1
+        self.up2_1 = Upsample_IDWT(int(dim * 2 ** 1))  ## From Level 2 to Level 1
         self.reduce_chan_level1 = nn.Conv2d(int(dim * 2), int(dim), kernel_size=1, bias=bias)
 
         self.decoder_level1 = nn.Sequential(*[
