@@ -21,7 +21,7 @@ parser.add_argument('--target_dir', default='demo/target', type=str,
                     help='Directory of validation target images')
 parser.add_argument('--result_dir', default='./results/', type=str, help='Directory for results')
 parser.add_argument('--weights',
-                    default='/home/adi/gms/WaterMamba/Mamba/pretrained_models/net_g_232000.pth'
+                    default='/home/right_limit/WaterMamba/experiments/pretrained_models/net_g_232000.pth'
                     , type=str, help='Path to weights')
 
 args = parser.parse_args()
@@ -82,7 +82,10 @@ for dataset in datasets:
             padw = W - w if w % factor != 0 else 0
             input_ = F.pad(input_, (0, padw, 0, padh), 'reflect')
 
-            restored = model_restoration(input_)
+            # restored = model_restoration(input_)
+            with torch.no_grad():
+                restored = model_restoration(input_)
+            torch.cuda.empty_cache()
 
             # Unpad images to original dimensions
             restored = restored[:, :, :h, :w]
