@@ -615,25 +615,15 @@ class OverlapPatchEmbed(nn.Module):
 class Downsample_DWT(nn.Module):
     def __init__(self, n_feat):
         super(Downsample_DWT, self).__init__()
-        # 初始化正向小波变换，使用最基础的 haar 小波
         self.dwt = DWTForward(J=1, mode='zero', wave='haar')
-        
-        # 💡 小波变换会把图像拆成 1个低频(LL) + 3个高频(LH, HL, HH)
-        # 通道数会变成原来的 4 倍，所以我们需要一个 1x1 卷积把它压缩对齐到目标的通道数 (n_feat * 2)
         self.conv = nn.Conv2d(n_feat * 4, n_feat * 2, kernel_size=1, bias=False)
 
     def forward(self, x):
-        # yl 是低频分量，yh 是高频分量列表
         yl, yh = self.dwt(x)
-        
         # 提取并重组高频分量 (B, C, 3, H/2, W/2) -> (B, C*3, H/2, W/2)
         b, c, _, h, w = yh[0].shape
         yh_reshaped = yh[0].view(b, c * 3, h, w)
-        
-        # 将低频和高频在通道维度拼接，实现信息零丢失！
         out = torch.cat([yl, yh_reshaped], dim=1) 
-        
-        # 压缩通道数，送给下一层
         return self.conv(out)
 
 # =========================================================
@@ -642,25 +632,16 @@ class Downsample_DWT(nn.Module):
 class Upsample_IDWT(nn.Module):
     def __init__(self, n_feat):
         super(Upsample_IDWT, self).__init__()
-        # 初始化逆向小波变换
         self.idwt = DWTInverse(mode='zero', wave='haar')
-        
-        # 上采样前，需要把通道数放大 4 倍，用来填补 1个低频和 3个高频的位置
         self.conv = nn.Conv2d(n_feat, (n_feat // 2) * 4, kernel_size=1, bias=False)
 
     def forward(self, x):
-        # 放大通道数
         x = self.conv(x)
-        
-        # 拆分出低频和高频的通道
         b, c, h, w = x.shape
         c_split = c // 4
-        
-        yl = x[:, :c_split, :, :]               # 前 1/4 作为低频
-        yh_reshaped = x[:, c_split:, :, :]      # 后 3/4 作为高频
+        yl = x[:, :c_split, :, :]              
+        yh_reshaped = x[:, c_split:, :, :]      
         yh = [yh_reshaped.view(b, c_split, 3, h, w)] 
-        
-        # 通过 IDWT 完美重构出尺寸翻倍的高清特征图！
         out = self.idwt((yl, yh))
         return out
 
