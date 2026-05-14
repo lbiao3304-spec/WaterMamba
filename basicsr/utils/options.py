@@ -56,6 +56,11 @@ def parse(opt_path, is_train=True):
         if dataset.get('dataroot_lq') is not None:
             dataset['dataroot_lq'] = osp.expanduser(dataset['dataroot_lq'])
 
+    # test mode: force all datasets to 'val' phase (disable random crop)
+    if not is_train:
+        for phase, dataset in opt['datasets'].items():
+            dataset['phase'] = 'val'
+
     # paths
     for key, val in opt['path'].items():
         if (val is not None) and ('resume_state' in key

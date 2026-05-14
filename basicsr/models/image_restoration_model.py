@@ -204,6 +204,68 @@ class ImageCleanModel(BaseModel):
             self.output = pred
             self.net_g.train()
 
+    def tile_test(self, img, tile_size=256, tile_overlap=32):
+        """滑动窗口分块推理，避免大图爆显存。仅用于验证。支持 batch>1。"""
+        if hasattr(self, 'net_g_ema'):
+            net = self.net_g_ema
+        else:
+            net = self.net_g
+        net.eval()
+
+        B, _, H, W = img.shape
+        outputs = []
+        for b in range(B):
+            single_img = img[b:b+1]  # [1, 3, H, W]
+            _, _, h, w = single_img.shape
+            stride = tile_size - tile_overlap
+
+            if h <= tile_size:
+                n_h = 1
+                pad_h = tile_size - h if h < tile_size else 0
+            else:
+                n_h = (h - tile_overlap + stride - 1) // stride
+                pad_h = (n_h - 1) * stride + tile_size - h
+
+            if w <= tile_size:
+                n_w = 1
+                pad_w = tile_size - w if w < tile_size else 0
+            else:
+                n_w = (w - tile_overlap + stride - 1) // stride
+                pad_w = (n_w - 1) * stride + tile_size - w
+            if pad_h > 0 or pad_w > 0:
+                single_img = F.pad(single_img, (0, pad_w, 0, pad_h), 'reflect')
+
+            _, _, padded_h, padded_w = single_img.shape
+            output = torch.zeros(1, 3, padded_h, padded_w, device=img.device)
+            weight = torch.zeros(1, 3, padded_h, padded_w, device=img.device)
+
+            sigma = tile_size / 6.0
+            c = (tile_size - 1) / 2.0
+            ys = torch.arange(tile_size, dtype=torch.float32, device=img.device)
+            xs = torch.arange(tile_size, dtype=torch.float32, device=img.device)
+            gy = torch.exp(-((ys - c) ** 2) / (2 * sigma ** 2))
+            gx = torch.exp(-((xs - c) ** 2) / (2 * sigma ** 2))
+            w_map = (gy[:, None] * gx[None, :]).view(1, 1, tile_size, tile_size)
+
+            for iy in range(n_h):
+                for ix in range(n_w):
+                    y1 = iy * stride
+                    x1 = ix * stride
+                    tile = single_img[:, :, y1:y1 + tile_size, x1:x1 + tile_size]
+                    with torch.no_grad():
+                        p = net(tile)
+                        if isinstance(p, list):
+                            p = p[-1]
+                    output[:, :, y1:y1 + tile_size, x1:x1 + tile_size] += p * w_map
+                    weight[:, :, y1:y1 + tile_size, x1:x1 + tile_size] += w_map
+
+            outputs.append((output / weight.clamp(min=1e-8))[:, :, :h, :w])
+
+        self.output = torch.cat(outputs, dim=0)
+
+        if not hasattr(self, 'net_g_ema'):
+            self.net_g.train()
+
     def dist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
         if os.environ['LOCAL_RANK'] == '0':
             return self.nondist_validation(dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image)
@@ -234,7 +296,8 @@ class ImageCleanModel(BaseModel):
             img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
 
             self.feed_data(val_data)
-            test()
+            # 使用滑窗分块推理代替整图推理，避免大图爆显存
+            self.tile_test(self.lq)
 
             visuals = self.get_current_visuals()
             sr_img = tensor2img([visuals['result']], rgb2bgr=rgb2bgr)

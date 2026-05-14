@@ -10,8 +10,8 @@ datasets:
   train:
     name: TrainSet
     type: Dataset_PairedImage
-    dataroot_gt: /root/WaterMamba/dataset/reference-890
-    dataroot_lq: /root/WaterMamba/dataset/raw-890/raw-890
+    dataroot_gt: /home/right_limit/WaterMamba/dataset/reference-800
+    dataroot_lq: /home/right_limit/WaterMamba/dataset/raw-800
     geometric_augs: false
     filename_tmpl: '{}'
     io_backend:
@@ -36,8 +36,8 @@ datasets:
   val:
     name: ValSet
     type: Dataset_PairedImage
-    dataroot_gt: /root/WaterMamba/dataset/reference-890
-    dataroot_lq: /root/WaterMamba/dataset/raw-890/raw-890
+    dataroot_gt: /home/right_limit/WaterMamba/dataset/ref_val
+    dataroot_lq: /home/right_limit/WaterMamba/dataset/raw_val
     geometric_augs: false
     io_backend:
       type: disk
@@ -61,7 +61,7 @@ network_g:
 
 # path
 path:
-  pretrain_network_g: ~
+  pretrain_network_g: /home/right_limit/WaterMamba/experiments/WaterMamba/models/net_g_latest.pth
   strict_load_g: true
   resume_state: ~
 
@@ -100,8 +100,8 @@ train:
 # validation settings
 val:
   window_size: 8
-  val_freq: !!float 2e3
-  save_img: false
+  val_freq: !!float 10000
+  save_img: true
   rgb2bgr: true
   use_image: true
   max_minibatch: 8
@@ -109,6 +109,10 @@ val:
   metrics:
     psnr: # metric name, can be arbitrary
       type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
       crop_border: 0
       test_y_channel: false
 
