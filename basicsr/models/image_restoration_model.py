@@ -330,6 +330,8 @@ class ImageCleanModel(BaseModel):
                         self.opt['path']['visualization'], dataset_name,
                         f'{img_name}_gt.png')
                     
+                os.makedirs(osp.dirname(save_img_path), exist_ok=True)
+                os.makedirs(osp.dirname(save_gt_img_path), exist_ok=True)
                 imwrite(sr_img, save_img_path)
                 imwrite(gt_img, save_gt_img_path)
 
