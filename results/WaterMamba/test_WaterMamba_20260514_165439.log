@@ -1,4 +1,4 @@
-2026-05-14 16:15:25,806 INFO: 
+2026-05-14 16:54:39,372 INFO: 
                 ____                _       _____  ____
                / __ ) ____ _ _____ (_)_____/ ___/ / __ \
               / __  |/ __ `// ___// // ___/\__ \ / /_/ /
@@ -14,7 +14,7 @@ Version Information:
 	BasicSR: 1.0.0+8b4b00c
 	PyTorch: 2.0.1+cu118
 	TorchVision: 0.15.2+cu118
-2026-05-14 16:15:25,806 INFO: 
+2026-05-14 16:54:39,372 INFO: 
   name: WaterMamba
   model_type: ImageCleanModel
   scale: 1
@@ -145,12 +145,12 @@ Version Information:
   rank: 0
   world_size: 1
 
-2026-05-14 16:15:25,816 INFO: Dataset Dataset_PairedImage - TrainSet is created.
-2026-05-14 16:15:25,816 INFO: Number of test images in TrainSet: 800
-2026-05-14 16:15:25,817 INFO: Dataset Dataset_PairedImage - ValSet is created.
-2026-05-14 16:15:25,817 INFO: Number of test images in ValSet: 90
-2026-05-14 16:15:26,224 INFO: Network: WaterMamba, with parameters: 5,189,376
-2026-05-14 16:15:26,224 INFO: WaterMamba(
+2026-05-14 16:54:39,383 INFO: Dataset Dataset_PairedImage - TrainSet is created.
+2026-05-14 16:54:39,383 INFO: Number of test images in TrainSet: 800
+2026-05-14 16:54:39,384 INFO: Dataset Dataset_PairedImage - ValSet is created.
+2026-05-14 16:54:39,384 INFO: Number of test images in ValSet: 90
+2026-05-14 16:54:40,020 INFO: Network: WaterMamba, with parameters: 5,189,376
+2026-05-14 16:54:40,021 INFO: WaterMamba(
   (patch_embed): OverlapPatchEmbed(
     (proj): Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
   )
@@ -278,6 +278,9 @@ Version Information:
     (2): Conv2d(64, 3, kernel_size=(1, 1), stride=(1, 1), bias=False)
   )
 )
-2026-05-14 16:15:26,224 INFO: Loading WaterMamba model from /home/right_limit/WaterMamba/experiments/WaterMamba/models/net_g_latest.pth.
-2026-05-14 16:15:26,259 INFO: Model [ImageCleanModel] is created.
-2026-05-14 16:15:26,259 INFO: Testing TrainSet...
+2026-05-14 16:54:40,021 INFO: Loading WaterMamba model from /home/right_limit/WaterMamba/experiments/WaterMamba/models/net_g_latest.pth.
+2026-05-14 16:54:40,065 INFO: Model [ImageCleanModel] is created.
+2026-05-14 16:54:40,065 INFO: Testing TrainSet...
+2026-05-14 17:29:47,814 INFO: Validation TrainSet,		 # psnr: 27.4422	 # ssim: 0.9338
+2026-05-14 17:29:47,821 INFO: Testing ValSet...
+2026-05-14 17:32:13,110 INFO: Validation ValSet,		 # psnr: 21.3698	 # ssim: 0.8135
