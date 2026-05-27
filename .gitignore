@@ -1,2 +1,36 @@
+# Data & datasets
 demo/
 dataset/
+
+# Training results & experiments (large binary files)
+results/
+tb_logger/
+experiments/
+
+# Literature search artifacts
+paper-search-results/
+paper_rewriting_output/
+
+# Large archives & model weights
+*.zip
+*.tar.gz
+*.pth
+*.ckpt
+
+# Build artifacts
+basicsr.egg-info/
+build/
+__pycache__/
+*.pyc
+
+# Temp & debug scripts
+fetch_papers.py
+val_debug.py
+semantic_scholar_results.json
+*.log
+
+# IDE
+.vscode/
+
+# Windows system files
+*:Zone.Identifier

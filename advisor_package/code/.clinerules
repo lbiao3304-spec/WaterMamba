@@ -1,0 +1,45 @@
+# WaterMamba 项目规则
+
+## 1. basicsr 模块使用规则
+
+本项目不使用 `pip install basicsr` 或 `pip install -e .` 安装 basicsr。
+**所有 Python 脚本必须通过 `PYTHONPATH` 指向项目根目录来导入本地 `basicsr/` 源码。**
+
+正确用法：
+```bash
+PYTHONPATH=/home/right_limit/WaterMamba python xxx.py
+```
+
+错误用法（会导致 torch 版本冲突或编译失败）：
+```bash
+pip install -e .        # ❌ 不要这样做
+pip install basicsr     # ❌ 不要这样做
+```
+
+Python 脚本内部如需确保导入，可在文件开头加：
+```python
+import sys
+sys.path.insert(0, '/home/right_limit/WaterMamba')
+```
+
+## 2. Conda 环境
+
+本项目使用 `vmamba` 环境（Python 3.10, PyTorch + CUDA, RTX 4070 Laptop GPU）。
+
+所有命令的前缀：
+```bash
+source /home/right_limit/miniconda3/etc/profile.d/conda.sh && conda activate vmamba && PYTHONPATH=/home/right_limit/WaterMamba python xxx.py
+```
+
+或使用 conda run：
+```bash
+conda run -n vmamba env PYTHONPATH=/home/right_limit/WaterMamba python xxx.py
+```
+
+## 3. 配置文件路径
+
+`WaterMamba.yml` 中的路径使用**本机绝对路径**：
+- 数据集：`/home/right_limit/WaterMamba/dataset/`
+- 模型权重：`/home/right_limit/WaterMamba/experiments/WaterMamba/models/`
+
+云端训练机的 `/root/WaterMamba/` 路径需替换为本地路径。

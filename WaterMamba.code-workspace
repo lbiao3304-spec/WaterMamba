@@ -1,0 +1,52 @@
+{
+  "folders": [
+    {
+      "name": "📋 Config & Scripts",
+      "path": ".",
+      "files": [
+        "WaterMamba.yml",
+        "train.sh",
+        "val_debug.py",
+        "setup.py",
+        "setup.cfg",
+        "PROJECT_NOTES.md",
+        ".clinerules",
+        ".gitignore"
+      ]
+    },
+    {
+      "name": "⚙️ Core (basicsr)",
+      "path": "basicsr"
+    },
+    {
+      "name": "📦 Data",
+      "path": "dataset"
+    },
+    {
+      "name": "🏋️ Training",
+      "path": "experiments"
+    },
+    {
+      "name": "📊 Results",
+      "path": "results"
+    },
+    {
+      "name": "📈 TensorBoard Logs",
+      "path": "tb_logger"
+    },
+    {
+      "name": "🧪 Test Dataset (U45)",
+      "path": "underwater-test-dataset-U45-"
+    },
+    {
+      "name": "🖼️ Assets",
+      "path": "assets"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.git": true,
+      "*.tar.gz": false
+    }
+  }
+}
