@@ -157,8 +157,15 @@ class ImageCleanModel(BaseModel):
         loss_dict = OrderedDict()
         # pixel loss
         l_pix = 0.
-        for pred in preds:
-            l_pix += self.cri_pix(pred, self.gt)
+        # Cascaded loss weights: coarse -> fine
+        loss_weights = [0.2, 0.3, 0.5, 1.0]
+        for i, pred in enumerate(preds):
+            if pred.shape[-2:] != self.gt.shape[-2:]:
+                # Downsample GT to match prediction resolution
+                gt_i = F.interpolate(self.gt, size=pred.shape[-2:], mode='bilinear', align_corners=False)
+            else:
+                gt_i = self.gt
+            l_pix += loss_weights[i] * self.cri_pix(pred, gt_i)
 
         loss_dict['l_pix'] = l_pix
 

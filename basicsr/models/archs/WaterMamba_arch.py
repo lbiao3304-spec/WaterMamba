@@ -612,19 +612,47 @@ class OverlapPatchEmbed(nn.Module):
 # =========================================================
 # 新增：基于离散小波变换 (DWT) 的无损下采样
 # =========================================================
+
+# =========================================================
+# Q3: Squeeze-and-Excitation (SE) channel attention for DWT subband fusion
+# =========================================================
+class SELayer(nn.Module):
+    def __init__(self, channels, reduction=4):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
 class Downsample_DWT(nn.Module):
     def __init__(self, n_feat):
         super(Downsample_DWT, self).__init__()
         self.dwt = DWTForward(J=1, mode='zero', wave='haar')
-        self.conv = nn.Conv2d(n_feat * 4, n_feat * 2, kernel_size=1, bias=False)
+        # Q2: dual-branch spatial-frequency separation
+        self.conv_ll = nn.Conv2d(n_feat, n_feat, kernel_size=1, bias=False)
+        self.conv_yh = nn.Conv2d(n_feat * 3, n_feat * 3, kernel_size=1, bias=False)
+        self.conv_fuse = nn.Conv2d(n_feat * 4, n_feat * 2, kernel_size=1, bias=False)
+        self.se = SELayer(n_feat * 4, reduction=4)  # Q3: SE for subband fusion
 
     def forward(self, x):
         yl, yh = self.dwt(x)
-        # 提取并重组高频分量 (B, C, 3, H/2, W/2) -> (B, C*3, H/2, W/2)
         b, c, _, h, w = yh[0].shape
         yh_reshaped = yh[0].view(b, c * 3, h, w)
-        out = torch.cat([yl, yh_reshaped], dim=1) 
-        return self.conv(out)
+        # Separate processing for low-freq (LL) and high-freq (LH/HL/HH)
+        yl = self.conv_ll(yl)
+        yh_reshaped = self.conv_yh(yh_reshaped)
+        out = torch.cat([yl, yh_reshaped], dim=1)
+        out = self.se(out)  # Q3: SE channel attention on subbands
+        return self.conv_fuse(out)
 
 # =========================================================
 # 新增：基于逆向小波变换 (IDWT) 的无损上采样
@@ -633,15 +661,22 @@ class Upsample_IDWT(nn.Module):
     def __init__(self, n_feat):
         super(Upsample_IDWT, self).__init__()
         self.idwt = DWTInverse(mode='zero', wave='haar')
-        self.conv = nn.Conv2d(n_feat, (n_feat // 2) * 4, kernel_size=1, bias=False)
+        # Q2: dual-branch spatial-frequency separation
+        self.conv_ll = nn.Conv2d(n_feat, n_feat // 2, kernel_size=1, bias=False)
+        self.conv_yh = nn.Conv2d(n_feat, (n_feat // 2) * 3, kernel_size=1, bias=False)
+        self.se = SELayer(n_feat * 2, reduction=4)  # Q3: SE for subband fusion (2C = C/2 * 4)
 
     def forward(self, x):
-        x = self.conv(x)
-        b, c, h, w = x.shape
-        c_split = c // 4
-        yl = x[:, :c_split, :, :]              
-        yh_reshaped = x[:, c_split:, :, :]      
-        yh = [yh_reshaped.view(b, c_split, 3, h, w)] 
+        # Generate LL and Yh via separate paths
+        yl = self.conv_ll(x)
+        yh_reshaped = self.conv_yh(x)
+        # Q3: SE channel attention on combined subband features
+        combined = torch.cat([yl, yh_reshaped], dim=1)
+        combined = self.se(combined)
+        yl = combined[:, :yl.shape[1], :, :]
+        yh_reshaped = combined[:, yl.shape[1]:, :, :]
+        b, c_yl, h, w = yl.shape
+        yh = [yh_reshaped.view(b, c_yl, 3, h, w)]
         out = self.idwt((yl, yh))
         return out
 
@@ -722,6 +757,23 @@ class WaterMamba(nn.Module):
         )
         self.apply(self._init_weights)
 
+        # Cascaded loss output heads (each decoder level -> RGB)
+        self.output_level3 = nn.Sequential(
+            norm_layer(int(dim * 4)),
+            nn.SiLU(),
+            nn.Conv2d(int(dim * 4), out_channels, kernel_size=1, bias=bias),
+        )
+        self.output_level2 = nn.Sequential(
+            norm_layer(int(dim * 2)),
+            nn.SiLU(),
+            nn.Conv2d(int(dim * 2), out_channels, kernel_size=1, bias=bias),
+        )
+        self.output_level1 = nn.Sequential(
+            norm_layer(int(dim)),
+            nn.SiLU(),
+            nn.Conv2d(int(dim), out_channels, kernel_size=1, bias=bias),
+        )
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -760,7 +812,12 @@ class WaterMamba(nn.Module):
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
         out_dec_level1 = self.decoder_level1(inp_dec_level1)
 
-        return self.output(out_dec_level1) + inp_img
+        # Cascaded multi-level outputs
+        out_l3 = self.output_level3(out_dec_level3)
+        out_l2 = self.output_level2(out_dec_level2)
+        out_l1 = self.output_level1(out_dec_level1)
+        final = self.output(out_dec_level1) + inp_img
+        return [out_l3, out_l2, out_l1, final]
 
 from thop import profile
 if __name__ == '__main__':
